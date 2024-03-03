@@ -1,0 +1,105 @@
+---
+- name: Check ABAP Central instance
+  hosts: all
+  gather_facts: false
+
+  tasks:
+
+  - fail:
+      msg: "You must specify related group in the limit parameter"
+    when: ansible_limit is not defined
+    run_once: true
+
+  # - name: Get SID from /etc/passwd
+  #   shell: 
+  #     cmd: awk -F':' 'length($1) == 6 && substr($1, 4) == "adm" { print substr($1, 1, 3) }' /etc/passwd | awk '{gsub(/\<(adm|sap|daa|cza)\>/,""); print}' | awk NF
+  #   register: result
+
+  - name: Get SID from /etc/passwd
+    shell: /usr/sap/hostctrl/exe/saphostctrl -function ListInstances | tr -d ' ' | awk -F':' '{split($2,a,"-"); print a[1]}' | awk '{gsub(/\<(SAP|DAA)\>/,"");print}' | awk NF
+    become_user: root
+    register: result
+
+  - set_fact:
+      SID: "{{ result.stdout[:3] }}"
+
+# This task should be uncommented for debugging purposes only
+  # - name: show SID number(s)
+  #   debug:
+  #     msg: "{{ SID }}"
+
+  - name: collect instance number(s)
+    shell:
+        cmd: /usr/sap/hostctrl/exe/lssap | awk -v sid={{ SID |upper }} -F'|' '{gsub(" ","");if ($1=="{{ SID|upper }}" && $3 ~/^ASCS/) print $2}'
+    register: instance_nr
+    become: yes
+    ignore_errors: true
+  
+  - fail:
+      msg: No ASCS instance found.
+    when: instance_nr.stdout == ""
+ 
+
+  # - debug: var=instance_nr
+
+# This task should be uncommented for debugging purposes only
+  # - name: show instance number(s)
+  #   debug:
+  #       msg: "{{ instance_nr.stdout_lines }}"
+
+  - name: initialise empty array
+    set_fact:
+       instance_nr_lines: []
+
+  - name: create fact that will use instance_nr_lines array
+    set_fact:
+       instance_nr_lines: "{{ instance_nr_lines }} + [ '{{ item }}' ]"
+    loop: "{{ instance_nr.stdout_lines }}"
+
+# This task should be uncommented for debugging purposes only
+  # - name: list first instance_nr
+  #   debug:
+  #       msg: "{{ instance_nr_lines[0] }}"
+
+# This task should be uncommented for debugging purposes only
+  # - name: show instance numbers, line-by-line
+  #   debug:
+  #       msg: "This is an instance number: {{ item }}"
+  #   loop: "{{ instance_nr_lines }}"
+
+  - name: capture sapcontrol binary path
+    shell:
+       cmd: /bin/csh -c "source /home/{{ SID|lower }}adm/.cshrc;/usr/bin/which sapcontrol"
+    become: yes
+    become_user: "{{ SID|lower }}adm"
+    register: sap_ctrl_path
+    ignore_errors: true
+
+ 
+  - fail:
+      msg: "sapcontrol cannot be found using cmd -> 'source /home/{{ SID|lower }}adm/.cshrc;/usr/bin/which sapcontrol'"
+    when: sap_ctrl_path.stdout == ""
+
+
+  - name: Status of ASCS
+    shell:  /bin/csh -c "{{ sap_ctrl_path.stdout }} -prot NI_HTTP -nr {{ instance_nr_lines[0] }} -function GetSystemInstanceList"
+    become: yes
+    become_user: "{{ SID|lower }}adm"
+    register: ASCS_status
+
+# failed_when: false
+
+  # - debug: var=ASCS_status.stdout_lines
+
+# Status when ASCS is running
+  - name: Status of ASCS when it is running
+    debug:
+       msg: "ASCS IS UP and RUNNING for {{ inventory_hostname }}"
+    when: "'GREEN' in ASCS_status.stdout"
+
+# Status when ASCS is down   
+  - name: Status of ASCS when it is Stopped
+    debug:
+       msg: "ASCS is DOWN for {{ inventory_hostname }}"
+    when: "'GRAY' in ASCS_status.stdout or 'YELLOW' in ASCS_status.stdout"
+    

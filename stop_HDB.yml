@@ -1,0 +1,132 @@
+---
+# # This task should be uncommented for debugging purposes only 
+# - debug:
+#       msg: '{{hostvars["localhost"]["sel_op"]}} Operation Begin'
+# # This task should be uncommented for debugging purposes only 
+# - debug:
+#       msg: 'These host(s) will be effected {{hostvars["localhost"]["host_list"]}}'
+
+- name: Get SID from /etc/passwd
+  shell: /usr/sap/hostctrl/exe/saphostctrl -function ListInstances | tr -d ' ' | awk -F':' '{split($2,a,"-"); print a[1]}' | awk '{gsub(/\<(SAP|DAA)\>/,"");print}' | awk NF
+  become_user: root
+  register: result
+
+
+- set_fact:
+    SID: "{{ result.stdout[:3] }}"
+
+- name: show SID number(s)
+  debug:
+    msg: "{{ SID|upper }}"
+
+# PCS OPERATION BEGIN
+# PRE CHECK PCS STATUS--IF ANY INSTANCE IS STOPPED/DISABLED, DON't PROCEED------
+- name: PCS Status
+  shell: pcs status
+  become: true
+  register: pre_pcs_status
+  ignore_errors: yes
+  no_log: yes
+
+- debug:
+    msg: Pacemaker is not running on this host
+  when: pre_pcs_status.rc != 0
+
+- name: Check if any instance DISABLED
+  fail:
+    msg: One or more instance(s) are already disabled or stopped in Cluster, Fix Required
+  failed_when: "'DISABLED' in pre_pcs_status.stdout"  
+  when: pre_pcs_status.rc == 0 
+# PRE CHECK PCS STATUS--IF ANY INSTANCE IS STOPPED/DISABLED, DON't PROCEED------
+
+# No instance is stopped or disabled,PUT PCS IN MAINTENANCE MODE
+- name: Set PCS in maintenance mode
+  shell: pcs property set maintenance-mode=true
+  become: true
+  register: maint_status
+  when: pre_pcs_status.rc == 0 
+# No instance is stopped or disabled,PUT PCS IN MAINTENANCE MODE
+# WAIT FOR 5 Seconds
+- name: wait for 5 seconds
+  wait_for:   
+    timeout: 5
+  when: "'DISABLED' not in pre_pcs_status.stdout and pre_pcs_status.rc == 0"  
+# WAIT    
+# POST CHECK PCS STATUS
+- name: Post Check PCS Status
+  shell: pcs status
+  become: true
+  register: post_pcs_status
+  ignore_errors: yes
+  no_log: yes
+  when: "'DISABLED' not in pre_pcs_status.stdout and pre_pcs_status.rc == 0"  
+
+- debug:
+    msg: "{{ post_pcs_status }}"
+
+- name: PostCheck if PCS is DISABLED
+  fail:
+    msg: Couldn't set cluster to maintenance mode, please check manually.
+  failed_when: "'*** Resource management is DISABLED ***' not in post_pcs_status.stdout"
+  when: pre_pcs_status.rc == 0   
+# POST CHECK PCS STATUS
+
+- debug:
+    msg: Cluster set to maintenance mode
+  when: pre_pcs_status.rc == 0
+
+# PCS OPERATION END
+
+- name: collect instance number(s)
+  become: yes
+  become_user: "{{ SID|lower }}adm"
+  shell:
+    cmd: /usr/sap/hostctrl/exe/lssap | awk -v sid={{ SID |upper }} -F'|' '{gsub(" ","");if ($1=="{{ SID |upper }}") print $2}'
+  register: sap_hana_instance_number  
+
+
+# This task should be uncommented for debugging purposes only
+# - name: show instance number(s)
+#   debug:
+#    msg: "{{ sap_hana_instance_number.stdout }}"
+
+- name: To check the status of HanaDB before issuing stop command
+  shell: |
+   echo -e $(/usr/sap/hostctrl/exe/sapcontrol -nr {{ sap_hana_instance_number.stdout }} -function GetProcessList)
+  register: DBstatusCheck
+  ignore_errors: true
+
+# - debug: var=DBstatusCheck
+
+- name: Print DB Stop status
+  debug:
+   msg: " HANA Database status is GRAY, Stopped or In process of Stopping "
+  when: "('GREEN' not in DBstatusCheck.stdout and 'YELLOW' not in DBstatusCheck.stdout )"
+
+
+- name: Stop Hana Database if its running
+  become: yes
+  become_user: "{{ SID|lower }}adm"
+
+  shell: |
+   echo -e $(/usr/sap/{{ SID | upper }}/HDB{{ sap_hana_instance_number.stdout }}/HDB stop)
+  when: "('GRAY' not in DBstatusCheck.stdout and 'YELLOW' not in  DBstatusCheck.stdout )"
+  tags:
+    - skipStopHDB
+
+- name: To check the status of HanaDB
+  shell: |
+   echo -e $(/usr/sap/hostctrl/exe/sapcontrol -nr {{ sap_hana_instance_number.stdout }} -function GetProcessList)
+  register: DBstatus
+
+- name: Get process list
+  debug:
+   msg: " {{ DBstatus.stdout }} "
+
+
+- name: Print HANA DB status
+  debug:
+   msg: " HANA Database status in GRAY, Stopped "
+  when: "('GREEN' not in  DBstatus.stdout  and 'YELLOW' not in  DBstatus.stdout )"
+
+

@@ -1,0 +1,12 @@
+---
+- hosts: "{{ host_list }}"
+  gather_facts: no
+  tasks:
+
+    - name: Start HDB Host   
+      include_tasks: start_HDB.yml
+      when: sel_op  == "Start"
+   
+    - name: Stop ASCS Host
+      include_tasks: stop_HDB.yml
+      when: sel_op == "Stop"

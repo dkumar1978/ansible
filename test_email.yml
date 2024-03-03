@@ -1,0 +1,27 @@
+---
+- name: check host groups
+  hosts: all
+  gather_facts: no
+  
+  tasks:
+  - name: sel_op value
+    debug:
+      msg: "You selected : {{ sel_op }}" 
+
+  # - name: Get system details
+  #   community.sap_libs.sap_system_facts:
+  #     var: ansible_facts
+
+  - name: Call Azure API
+    uri:
+      url: http://169.254.169.254/metadata/instance?api-version=2021-02-01
+      method: GET
+      return_content: yes
+      headers:
+        "Metadata": "true"
+    register: vm_info
+    no_log: True
+    
+
+  - debug:
+      msg: "{{ vm_info.msg }}"

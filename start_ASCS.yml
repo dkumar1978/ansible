@@ -1,0 +1,182 @@
+---
+# # This task should be uncommented for debugging purposes only 
+# - debug:
+#       msg: '{{hostvars["localhost"]["sel_op"]}} Operation Begin'
+# # This task should be uncommented for debugging purposes only 
+# - debug:
+#       msg: 'These host(s) will be effected {{hostvars["localhost"]["host_list"]}}'
+
+
+- name: Get SID from /etc/passwd
+  shell: /usr/sap/hostctrl/exe/saphostctrl -function ListInstances | tr -d ' ' | awk -F':' '{split($2,a,"-"); print a[1]}' | awk '{gsub(/\<(SAP|DAA)\>/,"");print}' | awk NF
+  become_user: root
+  register: result
+
+
+- set_fact:
+    SID: "{{ result.stdout[:3] }}"
+
+  # - name: Include variables for vars file
+  #   include_vars: ../vars/variables.yml  
+  
+- name: show SID number(s)
+  debug:
+    msg: "{{ SID }}"
+
+# PCS OPERATION BEGIN
+# PRE CHECK PCS STATUS--IF STATUS IS already DISABLED, DON't PROCEED------
+- name: PCS Status
+  shell: pcs status
+  become: true
+  register: pre_pcs_status
+  ignore_errors: yes
+  no_log: yes
+
+- debug:
+    msg: Pacemaker is not running on this host
+  when: pre_pcs_status.rc != 0
+
+- name: Check if maintenance mode already inactive 
+  debug:
+    msg: Maintenance mode is already INACTIVE
+  # failed_when: "'*** Resource management is DISABLED ***' not in pre_pcs_status.stdout"  
+  when: "'*** Resource management is DISABLED ***' not in pre_pcs_status.stdout and pre_pcs_status.rc == 0"
+# PRE CHECK PCS STATUS--IF ANY INSTANCE IS STOPPED/DISABLED, DON't PROCEED------
+# Set Maintenance mode to INACTIVE
+- name: Set PCS in maintenance mode
+  shell: pcs property set maintenance-mode=false
+  become: true
+  register: maint_status
+  when: "'*** Resource management is DISABLED ***' not in pre_pcs_status.stdout and pre_pcs_status.rc == 0"
+# Set Maintenance mode to INACTIVE
+# WAIT 
+- name: wait for 5 seconds
+  wait_for:   
+    timeout: 5
+  when: "'*** Resource management is DISABLED ***' not in pre_pcs_status.stdout and pre_pcs_status.rc == 0"
+# WAIT
+# POST CHECK PCS STATUS
+- name: Post Check PCS Status
+  shell: pcs status
+  become: true
+  register: post_pcs_status
+  ignore_errors: yes
+  no_log: yes
+
+- name: PostCheck if PCS is DISABLED
+  fail:
+    msg: Couldn't remove cluster maintenance mode, please check manually.
+  failed_when: "'*** Resource management is DISABLED ***' not in post_pcs_status.stdout"   
+  when: pre_pcs_status.rc == 0 
+# POST CHECK PCS STATUS
+- debug:
+    msg: Maintenance mode is INACTIVE for cluster
+  when: post_pcs_status.rc == 0
+# PCS OPERATION END
+
+- name: collect instance number(s)
+  shell:
+    cmd: /usr/sap/hostctrl/exe/lssap | awk -v sid={{ SID |upper }} -F'|' '{gsub(" ","");if ($1=="{{ SID|upper }}" && $3 ~ /^ASCS/) print $2}'
+  register: instance_nr
+  become: yes  
+
+# This task should be uncommented for debugging purposes only
+# - name: show instance number(s)
+#   debug:
+#     msg: "{{ instance_nr.stdout_lines }}"
+
+- name: initialise empty array
+  set_fact:
+    instance_nr_lines: []
+
+- name: create fact that will use instance_nr_lines array
+  set_fact:
+    instance_nr_lines: "{{ instance_nr_lines }} + [ '{{ item }}' ]"
+  loop: "{{ instance_nr.stdout_lines }}"
+
+# This task should be uncommented for debugging purposes only
+# - name: list first instance_nr
+#   debug:
+#     msg: "{{ instance_nr_lines[0] }}"
+
+# This task should be uncommented for debugging purposes only
+# - name: show instance numbers, line-by-line
+#   debug:
+#     msg: "This is an instance number: {{ item }}"
+#   loop: "{{ instance_nr_lines }}"
+
+- name: capture sapcontrol binary path 
+  shell:                 
+    cmd: /bin/csh -c "source /home/{{ SID|lower }}adm/.cshrc;/usr/bin/which sapcontrol"
+  become: yes            
+  become_user: "{{ SID|lower }}adm"
+  register: sap_ctrl_path 
+
+- name: Status of ASCS before starting
+  shell:
+    /bin/csh -c "{{ sap_ctrl_path.stdout }} -prot NI_HTTP -nr {{ instance_nr_lines[0] }} -function GetSystemInstanceList"
+  become: yes
+  become_user: "{{ SID|lower }}adm"
+  register: ASCS_status
+  # failed_when: false
+  
+# - debug: var=ASCS_status
+
+- name: make sure sapstartsrv is running
+  shell:
+    cmd: /bin/csh -c "source /home/{{ SID|lower }}adm/.cshrc;{{ sap_ctrl_path.stdout }} -prot NI_HTTP -nr {{ item }} -function StartService {{ SID }};{{ sap_ctrl_path.stdout }} -prot NI_HTTP -nr {{ item }} -function WaitforServiceStarted 100 10"
+  loop: "{{ instance_nr_lines }}"
+  loop_control:
+    pause: 10
+  become: yes
+  become_user: "{{ SID|lower }}adm"
+  register: start_result
+  
+#This task should be uncommented for debugging purposes only
+- name: show sapstartsrv start result
+  debug:
+    msg: "{{ start_result }}"
+
+- name: start SAP for ASCS
+  shell:  |
+   /bin/csh -c "/usr/sap/hostctrl/exe/sapcontrol -nr {{ item }} -function StartSystem" 
+   /bin/csh -c "sleep 10"
+   /bin/csh -c "/usr/sap/hostctrl/exe/sapcontrol -nr {{ item }} -function WaitforStarted 1200 10"
+  loop: "{{ instance_nr_lines }}"
+  become: yes
+# become_user: "{{ SID|lower }}adm"
+  register: SAP_start_result
+  when: '"GRAY" in "{{ ASCS_status.stdout_lines }}" or "YELLOW" in "{{ ASCS_status.stdout_lines }}"'
+  tags:
+    - skipStartASCS
+
+# This task should be uncommented for debugging purposes only
+- name: show SAP start result
+  debug:
+    msg: "{{ SAP_start_result }}"
+  tags:
+    - skipStartASCS
+
+- name: Get Instance list status
+  debug:
+    msg: "{{ SAP_start_result }}"
+  tags:
+    - skipStartASCS 
+
+
+- name: run extra check to confirm that SAP is started for ASCS
+  shell:
+    cmd: /bin/csh -c "source /home/{{ SID|lower }}adm/.cshrc;{{ sap_ctrl_path.stdout }} -nr {{ instance_nr_lines[0] }} -function GetSystemInstanceList"
+  become: yes
+  become_user: "{{ SID|lower }}adm"
+  register: extra_check_result
+  until: '"GRAY" not in extra_check_result.stdout and "YELLOW" not in extra_check_result.stdout and "RED" not in extra_check_result.stdout'
+  retries: 10
+  delay: 10
+   
+
+# # This task should be uncommented for debugging purposes only
+# - name: show extra_check_result
+#   debug:
+#     msg: "{{ extra_check_result }}"
+

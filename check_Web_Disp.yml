@@ -1,0 +1,44 @@
+---
+- name: Check Web Dispatcher URL Status
+  hosts: localhost
+  gather_facts: false
+  vars:
+    # csv_file_path: /mnt/au1erpdwfs01/AnsibleAutomation/URL-List.csv
+    urls: # This URL will be used as default if no URLs in extra variables
+      - https://au1webbs0001.cz2283.net.au:44300/sap/wdisp/admin/
+
+  tasks:
+    # - name: Read URL from CSV file
+    #   read_csv:
+    #     path: "{{ csv_file_path }}"
+    #   register: url_list
+   
+    - name: Find the URL status
+      uri:
+        # url: "{{ item.URL }}" # Here URL is column name.change column name accordingly.
+        url: "{{ item }}" # Here URL is column name.change column name accordingly.
+        method: GET
+        return_content: no
+        validate_certs: false
+        force: true
+      ignore_errors: yes
+      no_log: true
+      # with_items: "{{ url_list.list }}"
+      with_items: "{{ urls }}"
+      register: urlStatus
+          
+    - name: URL Down status
+      debug: 
+        msg: "The URL: {{ item.url }} is DOWN"
+      when: item.status != 200
+      with_items: "{{ urlStatus.results }}"
+      loop_control:
+        label: 'urlStatus'
+      
+    - name: URL UP status
+      debug: 
+        msg: "The URL: {{ item.url }} is UP"
+      when: item.status == 200
+      with_items: "{{ urlStatus.results }}"
+      loop_control:
+        label: 'urlStatus'

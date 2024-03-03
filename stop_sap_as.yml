@@ -1,0 +1,110 @@
+---
+- name: Stop SAP Application Server
+  hosts: all
+
+  tasks:
+  
+# -------------------------------------
+# MAINTENANCE MODE ACTIVE (to be used for stop server)
+# -------------------------------------
+
+# PRE CHECK PCS STATUS--IF ANY INSTANCE IS STOPPED/DISABLED, DON't PROCEED------
+  - name: PCS Status
+    shell: pcs status
+    become: true
+    register: pre_pcs_status
+    ignore_errors: yes
+    no_log: yes
+
+  - name: Check if any instance DISABLED
+    fail:
+      msg: One or more instance(s) are already disabled or stopped in Cluster
+    failed_when: "'DISABLED' not in pre_pcs_status.stdout"  
+    when: pre_pcs_status is defined 
+# PRE CHECK PCS STATUS--IF ANY INSTANCE IS STOPPED/DISABLED, DON't PROCEED------
+
+# SO FAR SO GOOD-- PUT PCS IN MAINTENANCE MODE
+  - name: Set PCS in maintenance mode
+    shell: pcs property set maintenance-mode=true
+    become: true
+    register: maint_status
+    when: pre_pcs_status is defined 
+# SO FAR SO GOOD-- PUT PCS IN MAINTENANCE MODE
+# WAIT 
+  - name: wait for 5 seconds
+    wait_for:   
+      timeout: 5
+# WAIT    
+# POST CHECK PCS STATUS
+  - name: Post Check PCS Status
+    shell: pcs status
+    become: true
+    register: post_pcs_status
+    ignore_errors: yes
+    no_log: yes
+
+  - name: PostCheck if PCS is DISABLED
+    fail:
+      msg: Couldn't set cluster to maintenance mode, please check manually.
+    failed_when: "'*** Resource management is DISABLED ***' not in pre_pcs_status.stdout"   
+# POST CHECK PCS STATUS
+
+  - debug:
+      msg: Cluster set to maintenance mode
+    when: 'post_pcs_status is defined and post_pcs_status.rc == 0'
+
+#--------------------------------------
+# MAINTENANCE MODE INACTIVE (to be used for start server)
+# -------------------------------------
+# 1. Check if PCS is already disabled. If yes then do not proceed
+# 2. Else set maintenance mode to INACTIVE
+# 3. Check PCS again to check is not *** Resource management is DISABLED ***
+# 4. if not means success, else error    
+
+# PRE CHECK PCS STATUS--IF STATUS IS already DISABLED, DON't PROCEED------
+  - name: PCS Status
+    shell: pcs status
+    become: true
+    register: pre_pcs_status
+    ignore_errors: yes
+    no_log: yes
+
+  - name: Check if maintenance mode already INACTIVE 
+    fail:
+      msg: Maintenance mode is already INACTIVE
+    failed_when: "'*** Resource management is DISABLED ***' in pre_pcs_status.stdout"  
+    when: pre_pcs_status is defined 
+# PRE CHECK PCS STATUS--IF ANY INSTANCE IS STOPPED/DISABLED, DON't PROCEED------
+
+# Set Maintenance mode to INACTIVE
+  - name: Set PCS in maintenance mode
+    shell: pcs property set maintenance-mode=false
+    become: true
+    register: maint_status
+    when: pre_pcs_status is defined 
+# Set Maintenance mode to INACTIVE
+
+# WAIT 
+  - name: wait for 5 seconds
+    wait_for:   
+      timeout: 5
+# WAIT
+
+# POST CHECK PCS STATUS
+  - name: Post Check PCS Status
+    shell: pcs status
+    become: true
+    register: post_pcs_status
+    ignore_errors: yes
+    no_log: yes
+
+  - name: PostCheck if PCS is DISABLED
+    fail:
+      msg: Couldn't set cluster to maintenance mode, please check manually.
+    failed_when: "'*** Resource management is DISABLED ***' in pre_pcs_status.stdout"   
+# POST CHECK PCS STATUS
+
+  - debug:
+      msg: Cluster set to maintenance mode
+    when: 'post_pcs_status is defined and post_pcs_status.rc == 0'
+

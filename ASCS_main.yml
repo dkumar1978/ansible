@@ -1,0 +1,12 @@
+---
+- hosts: "{{ host_list }}"
+  gather_facts: no
+  tasks:
+
+    - name: Start ASCS Host    
+      include_tasks: start_ASCS.yml
+      when: sel_op  == "Start"
+   
+    - name: Stop ASCS Host
+      include_tasks: stop_ASCS.yml
+      when: sel_op == "Stop"

@@ -1,0 +1,108 @@
+---
+- name: Check ABAP Application Server
+  hosts: all
+  gather_facts: false
+
+  tasks:
+
+  - fail:
+      msg: "You must specify related group in the limit parameter"
+    when: ansible_limit is not defined
+    run_once: true
+
+  # - name: Get SID from /etc/passwd
+  #   shell: 
+  #     cmd: awk -F':' 'length($1) == 6 && substr($1, 4) == "adm" { print substr($1, 1, 3) }' /etc/passwd | awk '{gsub(/\<(adm|sap|daa|cza)\>/,""); print}' | awk NF
+  #   register: result
+
+  - name: Get SID from /etc/passwd
+    shell: /usr/sap/hostctrl/exe/saphostctrl -function ListInstances | tr -d ' ' | awk -F':' '{split($2,a,"-"); print a[1]}' | awk '{gsub(/\<(SAP|DAA)\>/,"");print}' | awk NF
+    become_user: root
+    register: result
+
+  - set_fact:
+      SID: "{{ result.stdout[:3] }}"
+
+  - name: show SID number(s) for AS
+    debug:
+      msg: "{{ SID }}"
+
+  - name: collect instance number(s) for AS
+    shell:
+      cmd: /usr/sap/hostctrl/exe/lssap | awk -v sid={{ SID |upper }} -F'|' '{gsub(" ","");if ($1=="{{ SID|upper }}") print $2}'
+    become: yes
+    register: instance_nr
+    ignore_errors: true
+
+  - fail:
+      msg: No AS instance found.
+    when: instance_nr.stdout == ""
+
+# This task should be uncommented for debugging purposes only 
+  # - name: show instance number(s) for AS
+  #   debug:
+  #     msg: "{{ instance_nr.stdout_lines }}"
+
+  - name: initialise empty array
+    set_fact:
+      instance_nr_lines: []
+
+  - name: create fact that will use instance_nr_lines array
+    set_fact:
+      instance_nr_lines: "{{ instance_nr_lines }} + [ '{{ item }}' ]"
+    loop: "{{ instance_nr.stdout_lines }}"
+
+# This task should be uncommented for debugging purposes only 
+#- name: list first instance_nr of AS
+#  debug:
+#    msg: "{{ instance_nr_lines[0] }}"
+
+# This task should be uncommented for debugging purposes only 
+  # - name: show instance numbers, line-by-line
+  #   debug:
+  #     msg: "This is an instance number: {{ item }}"
+  #   loop: "{{ instance_nr_lines }}"
+
+  - name: capture sapcontrol binary path of AS
+    shell: 
+      cmd: /bin/csh -c "source /home/{{ SID|lower }}adm/.cshrc;/usr/bin/which sapcontrol"
+      # cmd: /usr/bin/which sapcontrol
+    become: yes    
+    become_user: "{{ SID|lower }}adm"
+    register: sap_ctrl_path
+    ignore_errors: true
+
+ 
+  - fail:
+      msg: "sapcontrol cannot be found using cmd -> 'source /home/{{ SID|lower }}adm/.cshrc;/usr/bin/which sapcontrol'"
+    when: sap_ctrl_path == ""
+
+
+  - name: Status of Aplication Server
+    shell:
+        /bin/csh -c "{{ sap_ctrl_path.stdout }} -prot NI_HTTP -nr {{ item }} -function GetSystemInstanceList"
+    loop: "{{ instance_nr_lines }}"
+    become: yes
+    become_user: "{{ SID|lower }}adm"
+    register: AS_status
+
+  # - debug: var=AS_status
+
+  - name: Status of AS when it is Running
+    debug:
+      msg: "Application Server IS UP and RUNNING for {{ inventory_hostname }} for instance no - {{ item.item }}}}"
+    loop: "{{ AS_status.results }}"
+    when: "'GREEN' in item.stdout"
+    # with_items: "{{ AS_status.results }}"
+    loop_control:
+      label: 'AS_status'
+
+  - name: Status of AS when it is Stopped
+    debug:
+      msg: "Application Server is DOWN for {{ inventory_hostname }} for instance no - {{ item.item }} }}"
+    loop: "{{ AS_status.results }}"
+    when: "'GRAY' in item.stdout or 'YELLOW' in item.stdout"
+    # with_items: "{{ AS_status.results }}"
+    loop_control:
+      label: 'AS_status'
+
