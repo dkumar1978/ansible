@@ -1,0 +1,86 @@
+---
+- name: Run python script
+  hosts: auedbssz0102
+  tasks:
+  # - name: Ping all nodes
+  #   ansible.builtin.ping:
+
+
+  # - name: check apache2 installation
+  #   ansible.builtin.stat:
+  #     path: /etc/apache2/apache2.conf
+  #   register: check_apache2
+
+  # - name: Connectivity Status
+  #   debug:
+  #     msg: "{{ check_apache2 }}"  
+
+  - debug:
+      msg: "{{ ansible_env }}"
+
+  - name: Run script remotely using python 2.7 
+    shell: |
+      su - s0fadm
+      python /usr/sap/S0F/HDB00/exe/python_support/systemReplicationStatus.py
+      exit
+    # . /home/s0fadm/.profile && python2 /usr/sap/S0F/HDB00/exe/python_support/systemReplicationStatus.py
+    # shell: 
+    #   source /home/s0fadm/.profile 
+      # python2 --version
+      #  /home/s0fadm/.profile
+      #  python2 /usr/sap/S0F/HDB00/exe/python_support/systemReplicationStatus.py
+    become: true  
+    become_user: 's0fadm' #<-- hardcoded for testing
+
+
+  - fail:
+    when: 1 == 1
+
+# TEST CODE  
+  - name: set PYTHONPATH 
+    # environment: 
+    #   PYTHONPATH: "/usr/sap/S0F/HDB00/exe/Py2:/usr/sap/S0F/SYS/global/hdb/custom/python_support:/usr/sap/S0F/HDB00/exe/python_support:/usr/sap/S0F/HDB00/erps0zdbs102:/usr/sap/S0F/HDB00/exe:/usr/sap/S0F/HDB00/exe/testscripts:/usr/sap/S0F/HDB00/exe/Python/lib/python2.7"
+    # shell: sh -c "python /usr/sap/S0F/HDB00/exe/python_support/systemReplicationStatus.py"
+    shell: 
+      # cmd: export PYTHONPATH=/usr/sap/S0F/HDB00/exe/Py2:/usr/sap/S0F/SYS/global/hdb/custom/python_support:/usr/sap/S0F/HDB00/exe/python_support:/usr/sap/S0F/HDB00/erps0zdbs102:/usr/sap/S0F/HDB00/exe:/usr/sap/S0F/HDB00/exe/testscripts:/usr/sap/S0F/HDB00/exe/Python/lib/python2.7;export PATH=/usr/sap/S0F/HDB00/exe/krb5/bin:/usr/sap/S0F/HDB00/exe/krb5/sbin:/usr/sap/S0F/HDB00/erps0zdbs102:/usr/sap/S0F/HDB00:/usr/sap/S0F/HDB00/exe:/usr/sap/S0F/HDB00/exe/mdc:/usr/sap/S0F/HDB00/exe/Python/bin:/usr/sap/S0F/HDB00/exe/dat_bin_dir:/home/s0fadm:/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin;export LD_LIBRARY_PATH=/usr/sap/S0F/HDB00/exe/krb5/lib/krb5/plugins/preauth:/usr/sap/S0F/HDB00/exe/krb5/lib:/usr/sap/S0F/HDB00/exe:/usr/sap/S0F/HDB00/exe/Python/lib:/usr/sap/S0F/HDB00/exe/Py2:/usr/sap/S0F/HDB00/exe/filter:/usr/sap/S0F/HDB00/exe/dat_bin_dir:/usr/sap/S0F/HDB00/exe/plugins/afl:/usr/sap/S0F/HDB00/exe/plugins/lcapps:/usr/sap/S0F/HDB00/exe/plugins/repository:/usr/sap/S0F/HDB00/exe/plugins/epmmds:/usr/sap/S0F/SYS/global/hdb/federation:/usr/sap/S0F/SYS/global/hdb/plugins/3rd_party_libs:/usr/sap/S0F/SYS/global/hdb/plugins/1st_party_libs 
+      cmd: export PYTHONPATH=/usr/sap/S0F/HDB00/exe/Py2:/usr/sap/S0F/SYS/global/hdb/custom/python_support:/usr/sap/S0F/HDB00/exe/python_support:/usr/sap/S0F/HDB00/erps0zdbs102:/usr/sap/S0F/HDB00/exe:/usr/sap/S0F/HDB00/exe/testscripts:/usr/sap/S0F/HDB00/exe/Python/lib/python2.7
+
+      #  pwd;/home/s0fadm/test.sh #echo $PATH #/bin/sh -c '/home/s0fadm/test.sh'
+    # shell: ". /home/s0fadm/.profile;python /usr/sap/S0F/HDB00/exe/python_support/systemReplicationStatus.py"
+      # cmd: ". /home/s0fadm/.profile" #;python /usr/sap/S0F/HDB00/exe/python_support/systemReplicationStatus.py 
+    become: true  
+    become_user: "s0fadm" #<-- hardcoded for testing
+
+
+  - name: echo pythonpath 
+    shell: echo $PYTHONPATH
+      # cmd: sh -c "python /usr/sap/S0F/HDB00/exe/python_support/systemReplicationStatus.py" 
+    become: true  
+    become_user: "s0fadm" #<-- hardcoded for testi
+
+
+  - name: permission
+    become: true
+    file:
+      path: /home/s0fadm/test.sh
+      owner: root
+      mode: '0777'
+
+  - name: run test.sh  
+    shell: sh -c "/home/s0fadm/test.sh"
+    become: true
+    become_user: "root"
+
+
+
+  - name: local Run
+    shell: sh -c "/home/s0fadm/test.sh"
+    become: true
+    become_user: "s0fadm"
+
+  # - name: Run script remotely using python 2.7 
+  #   shell: sh -c "python /usr/sap/S0F/HDB00/exe/python_support/systemReplicationStatus.py"
+  #     # cmd: sh -c "python /usr/sap/S0F/HDB00/exe/python_support/systemReplicationStatus.py" 
+    # become: true  
+    # become_user: "s0fadm" #<-- hardcoded for testing
+  # TEST CODE
